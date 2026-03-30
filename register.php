@@ -20,10 +20,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if ($result->num_rows > 0) {
             $message = "Такой логин или email уже зарегистрирован!";
         } else {
-            $hash = password_hash($password, PASSWORD_BCRYPT);
+            $secretKey = "KrisGo";
+            
+            $keyHash = md5($secretKey);
+            $keyBytes = hex2bin($keyHash);
+            $iv = openssl_random_pseudo_bytes(16);
+
+            $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+            $encUsername = openssl_encrypt($username, 'aes-128-cbc', $keyBytes, OPENSSL_RAW_DATA, $iv);
+            $encEmail = openssl_encrypt($email, 'aes-128-cbc', $keyBytes, OPENSSL_RAW_DATA, $iv);
+
+            $encUsernameBase64 = base64_encode($iv . $encUsername);
+            $encEmailBase64 = base64_encode($iv . $encEmail);
 
             $stmt = $conn->prepare("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, 'client')");
-            $stmt->bind_param("sss", $username, $email, $hash);
+            $stmt->bind_param("sss", $encUsernameBase64, $encEmailBase64, $passwordHash);
 
             if ($stmt->execute()) {
                 $message = "Регистрация успешна! Теперь можете войти.";

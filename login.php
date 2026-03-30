@@ -6,35 +6,54 @@ $message = '';
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $username = trim($_POST['username']);
-    $password = $_POST['password'];
+    $password = $_POST['password'] ?? '';
 
-    $stmt = $conn->prepare("SELECT id, username, password, role FROM users WHERE username = ?");
-    $stmt->bind_param("s", $username);
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    if ($result->num_rows === 1) {
-        $user = $result->fetch_assoc();
-
-        if (password_verify($password, $user['password'])) {
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['username'] = $user['username'];
-            $_SESSION['role'] = $user['role'];
-
-            if ($user['role'] === 'admin') {
-                header("Location: admin_dashboard.php");
-            } else {
-                header("Location: dishes.php");
-            }
-            exit;
-        } else {
-            $message = "Неверный пароль!";
-        }
+    if (empty($username) || empty($password)) {
+        $message = "Введите логин и пароль.";
     } else {
-        $message = "Пользователь не найден!";
-    }
+        $secretKey = "KrisGo";
+        $keyHash = md5($secretKey);
+        $keyBytes = hex2bin($keyHash);
 
-    $stmt->close();
+        $stmt = $conn->prepare("SELECT id, username, password, role FROM users");
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $user = null;
+        $ivSize = 16;
+
+        while ($row = $result->fetch_assoc()) {
+            $rawCrypto = base64_decode($row['username']);
+            $ivStored = substr($rawCrypto, 0, $ivSize);
+            $encStored = substr($rawCrypto, $ivSize);
+            $decUsername = openssl_decrypt($encStored, 'aes-128-cbc', $keyBytes, OPENSSL_RAW_DATA, $ivStored);
+
+            if ($decUsername === $username) {
+                $user = $row;
+                break;
+            }
+        }
+        $stmt->close();
+
+        if ($user) {
+            if (password_verify($password, $user['password'])) {
+                $_SESSION['user_id'] = (int)$user['id'];
+                $_SESSION['username'] = $username;
+                $_SESSION['role'] = $user['role'];
+
+                if ($user['role'] === 'admin') {
+                    header("Location: admin_dashboard.php");
+                } else {
+                    header("Location: dishes.php");
+                }
+                exit;
+            } else {
+                $message = "Неверный пароль!";
+            }
+        } else {
+            $message = "Пользователь не найден!";
+        }
+    }
 }
 
 $conn->close();
